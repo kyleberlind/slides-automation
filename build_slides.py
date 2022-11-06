@@ -1,13 +1,14 @@
 from __future__ import print_function
 
+from typing import List, Dict
 from googleapiclient.errors import HttpError
-from classes import GoogleSlideClient
+from classes import GoogleClient
 from constants import SCOPES, PRESENTATION_ID
+from datetime import datetime
 
-def add_to_slide(object_id, client: GoogleSlideClient, presentation_id):
-    # pylint: disable=maybe-no-member
+
+def add_to_slide(object_id, client: GoogleClient, presentation_id):
     try:
-        # Add a slide at index 1 using the predefine
         requests = [
             {
                 "insertText": {
@@ -26,18 +27,8 @@ def add_to_slide(object_id, client: GoogleSlideClient, presentation_id):
             }
 
         ]
-
-        # If you wish to populate the slide with elements,
-        # add element create requests here, using the page_id.
-
-        # Execute the request.
-        body = {
-            'requests': requests
-        }
-        response = client.service.presentations() \
-            .batchUpdate(presentationId=presentation_id, body=body).execute()
-        print(response)
-
+        response = update_presetation_with_requests(
+            presentation_id=presentation_id, client=client, requests=requests)
     except HttpError as error:
         print(f"An error occurred: {error}")
         print("Slides not created")
@@ -46,7 +37,7 @@ def add_to_slide(object_id, client: GoogleSlideClient, presentation_id):
     return response
 
 
-def create_slide(presentation_id, client: GoogleSlideClient, page_id):
+def create_slide(presentation_id, client: GoogleClient, page_id):
     try:
         # Add a slide at index 1 using the predefine
         requests = [
@@ -60,28 +51,19 @@ def create_slide(presentation_id, client: GoogleSlideClient, page_id):
                 },
             }
         ]
-
-        # If you wish to populate the slide with elements,
-        # add element create requests here, using the page_id.
-
-        # Execute the request.
-        body = {
-            'requests': requests
-        }
-        response = client.service.presentations() \
-            .batchUpdate(presentationId=presentation_id, body=body).execute()
+        response = update_presetation_with_requests(
+            presentation_id=presentation_id, client=client, requests=requests)
         create_slide_response = response.get('replies')[0].get('createSlide')
         print(f"Created slide with ID:"
               f"{(create_slide_response.get('objectId'))}")
     except HttpError as error:
         print(f"An error occurred: {error}")
-        print("Slides not created")
         return error
 
     return response
 
 
-def build_slides(client: GoogleSlideClient):
+def build_slides(client: GoogleClient):
     add_to_slide(object_id="SLIDES_API1821489010_1",
                  presentation_id=PRESENTATION_ID, client=client)
 
@@ -96,6 +78,82 @@ def build_slides(client: GoogleSlideClient):
                 print(key, val)
 
 
+def update_presetation_with_requests(presentation_id, requests: List, client: GoogleClient):
+    try:
+        body = {
+            'requests': requests
+        }
+        response = client.slide_service.presentations() \
+            .batchUpdate(presentationId=presentation_id, body=body).execute()
+        return response
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        raise error
+
+
+def create_presentation_from_template(customer_name: str, template_presentation_id: str, client: GoogleClient, template_data: Dict):
+    """
+    creates a presentation from a template
+    """
+
+    copy_title = f"{customer_name} Presentation {str(datetime.now())}"
+    body = {
+        'name': copy_title
+    }
+    drive_response = client.drive_service.files().copy(
+        fileId=template_presentation_id, body=body).execute()
+    presentation_copy_id = drive_response.get('id')
+
+    try:
+        requests = [
+            {
+                'replaceAllText': {
+                    'containsText': {
+                        'text': '{customer-name}',
+                        'matchCase': True
+                    },
+                    'replaceText': customer_name
+                }
+            },
+            {
+                'replaceAllText': {
+                    'containsText': {
+                        'text': '{case-description}',
+                        'matchCase': True
+                    },
+                    'replaceText': template_data["case_description"]
+                }
+            },
+            {
+                'replaceAllText': {
+                    'containsText': {
+                        'text': '{total-portfolio}',
+                        'matchCase': True
+                    },
+                    'replaceText': template_data["total_portfolio"]
+                }
+            }
+        ]
+
+        update_presetation_with_requests(
+            presentation_id=presentation_copy_id, client=client, requests=requests)
+
+        print(f"Created presentation for "
+              f"{customer_name} with ID: {presentation_copy_id}")
+
+    except HttpError as error:
+        print(f"An error occurred: {error}")
+        return error
+
+
 if __name__ == '__main__':
-    client = GoogleSlideClient(scopes=SCOPES)
-    build_slides(client=client)
+    client = GoogleClient(scopes=SCOPES)
+    template_data = {
+        "case_description": "This case is really good I think that it may be the best ive ever seen",
+        "total_portfolio": "98%"
+    }
+    create_presentation_from_template(
+        customer_name='Guild',
+        template_presentation_id=PRESENTATION_ID,
+        client=client,
+        template_data=template_data)
